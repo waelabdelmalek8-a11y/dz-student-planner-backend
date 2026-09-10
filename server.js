@@ -110,6 +110,6 @@ ${JSON.stringify(context, null, 2)}
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`DZ Student Planner AI Backend running on port ${PORT}`);
 });
