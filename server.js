@@ -1,8 +1,7 @@
-import express from "express";
+      import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
-import OpenAI from "openai";
 
 dotenv.config();
 
@@ -26,14 +25,14 @@ const limiter = rateLimit({
 
 app.use("/api/", limiter);
 
-const client = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
-    service: "DZ Student Planner AI Backend"
+    service: "DZ Student Planner AI Backend",
+    aiConfigured: Boolean(GEMINI_API_KEY)
   });
 });
 
@@ -47,9 +46,9 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    if (!client) {
+    if (!GEMINI_API_KEY) {
       return res.status(503).json({
-        error: "OPENAI_API_KEY غير مضبوط في الخادم"
+        error: "GEMINI_API_KEY غير مضبوط في الخادم"
       });
     }
 
@@ -86,14 +85,54 @@ app.post("/api/chat", async (req, res) => {
 ${JSON.stringify(context, null, 2)}
 `;
 
-    const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
-      instructions: systemPrompt,
-      input: message
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [
+              {
+                text: systemPrompt
+              }
+            ]
+          },
+          contents: [
+            {
+              parts: [
+                {
+                  text: message
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1200
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("GEMINI ERROR:", response.status, data);
+
+      return res.status(500).json({
+        error: "حدث خطأ أثناء الاتصال بـ Gemini"
+      });
+    }
 
     const answer =
-      response.output_text ||
+      data?.candidates?.[0]?.content?.parts
+        ?.map(part => part.text || "")
+        .join("")
+        .trim() ||
       "ما قدرتش نولد إجابة حالياً، حاول مرة أخرى.";
 
     res.json({
@@ -102,7 +141,7 @@ ${JSON.stringify(context, null, 2)}
     });
 
   } catch (error) {
-    console.error("AI ERROR:", error);
+    console.error("GEMINI ERROR:", error);
 
     res.status(500).json({
       error: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي"
